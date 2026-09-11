@@ -42,6 +42,21 @@ webcam --MediaPipe--> 21個手部關鍵點 --features.py--> 10維幾何特徵
 
 > `data/real_gestures.npz`、`data/gesture_classifier_real.joblib` 都已加進 `.gitignore`,不進版控——後者雖然是「訓練好的模型」,但因為是SVM+RBF kernel,實際上把84筆真實訓練樣本當作support vector原封不動存在模型檔裡,等於間接包含真人手勢生物特徵資料,所以比照其他專案「真實個資不上public repo」的原則處理。
 
+## Cross-Subject Generalization:換一個人比手勢,還準不準?
+
+Sim-to-Real Gap 問的是「合成資料 vs. 真實資料」,但還有另一個常被手勢辨識文獻提到的問題沒驗證過:**這個分類器只在我自己的手上訓練/測試過,換一個完全不認識的人來比,還可靠嗎?**這是不同層次的泛化問題,單純錄更多自己的資料解決不了。
+
+用 Kaggle 上 [`youssefelebiary/hand-gesture-landmarks`](https://www.kaggle.com/datasets/youssefelebiary/hand-gesture-landmarks)(MIT license,已存一份副本在 `data/external/`)測試——這是完全不同的人、不同收集環境錄的 MediaPipe landmark 資料,篩選出跟我們對應的5類手勢共295筆:
+
+| 測試對象 | 準確率 |
+|---|---|
+| 自己錄的真人測試集(同分佈) | 0.992 |
+| **Kaggle 公開資料集(不同的人,跨資料集)** | **0.939** |
+
+差距只有 5.3 個百分點,比原本擔心的還小——代表 `features.py` 設計的幾何特徵(距離/角度都經過 palm_size 正規化,跟手掌大小、位置、部分旋轉無關)確實有一定的跨個體泛化能力,不是只認得我自己的手。`fist` 跟 `thumbs_up` 這兩類在跨資料集測試裡掉得比較多(precision/recall都在0.8~0.9之間),可能是這兩個手勢的幾何形狀本來就比較容易因人而異(拇指擺放角度、握拳鬆緊程度),值得之後多收集這兩類的資料加強。
+
+執行方式:`python eval_cross_dataset.py ../data/external/kaggle_gesture_landmarks.csv`
+
 ## 與理論的關聯
 
 合成資料訓練出的高準確率跟真實辨識能力之間的落差,對應機器學習裡的 **Sim-to-Real Gap(模擬到真實的落差)/ Distribution Shift(分布偏移)**:分類器在訓練分布上表現完美,不代表在真實分布(不同的手型、角度、光線、鏡頭誤差)上也一樣好,兩個分布之間的差距就是問題所在。這是機器人學/電腦視覺裡一個獨立的研究子領域,**Domain Randomization**(Tobin, J. et al., "Domain Randomization for Transferring Deep Neural Networks from Simulation to the Real World", IROS 2017)正是因應這個問題發展出來的代表性方法之一——核心想法是隨機化模擬環境裡足夠多的參數,讓訓練分布的變異範圍蓋過真實世界的變異,而不是只模擬一個「乾淨」的單一情境。這個專案的資料生成邏輯已經套用了這個精神(見上方說明),跟 Portfolio 裡另外幾個「小資料下微調失效」的案例是同一個大主題的不同側面:**當真實標註資料不足時,不管是「乾脆不訓練、硬寫規則」「用合成資料頂替」還是「直接微調」,都各自有各自的失效模式,合成資料最危險的地方在於它會製造一個看起來很漂亮、但具有誤導性的高分**。
@@ -81,11 +96,15 @@ src/
   train_classifier.py            訓練SVM分類器
   collect_real_data.py           【需要你自己執行】錄製真實手勢資料(建議50~100筆/手勢)
   few_shot_calibrate.py          用少量真人樣本(2~5筆/手勢)校準,門檻更低
+  train_classifier_real.py       用真人資料訓練+量化sim-to-real gap
+  eval_cross_dataset.py          用Kaggle公開資料集測試跨受試者泛化
   osc_bridge.py                  即時webcam辨識 + OSC傳送
 data/
   synthetic_gestures.npz         合成訓練資料
   gesture_names.json             手勢類別名稱
-  gesture_classifier.joblib      訓練好的分類器
+  gesture_classifier.joblib      合成資料訓練的分類器
+  sim_to_real_gap_results.json   sim-to-real gap量化結果
+  external/kaggle_gesture_landmarks.csv   跨資料集泛化測試用(MIT license)
 processing_sketch/
   gesture_terrain/gesture_terrain.pde   接收OSC、驅動視覺效果
 ```
