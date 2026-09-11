@@ -25,6 +25,7 @@ webcam --MediaPipe--> 21個手部關鍵點 --features.py--> 10維幾何特徵
 - **資料生成套用了 Domain Randomization**(Tobin et al., 2017):不是單純在一個固定中心點外加同質高斯雜訊,而是先隨機生成20個「虛擬個體」各自的系統性偏移(population-level variation,模擬不同人比同一個手勢會有系統性差異),同一個體重複比出的樣本再加一層較小的雜訊(within-person variation),另外以4%機率模擬 MediaPipe 追蹤誤判造成的異常偏移。這是階層式的變異結構,比原本單層同質雜訊更貼近真實資料的樣子——但這個改動**沒辦法用真實資料驗證有沒有真的比較好**,誠實的說法是生成過程更貼近文獻建議的做法,不是保證分類器因此更準。
 - **`src/train_classifier.py`** 在合成資料上訓練 SVM,測試集準確率 0.997——這個數字只反映合成資料本身分得很開,**不代表真實辨識準確率**,腳本執行完會印出這個提醒。
 - **`src/collect_real_data.py`**:需要你自己開 webcam 執行,對著鏡頭比出每種手勢按空白鍵錄製,存成 `data/real_gestures.npz`。錄完後把 `train_classifier.py` 的資料來源從 `synthetic_gestures.npz` 換成 `real_gestures.npz` 重新訓練,才會得到有意義的真實準確率。**這一步需要你本人操作**,我沒有辦法幫你錄製手勢影像。
+- **`src/few_shot_calibrate.py`**(新增):`collect_real_data.py` 原本建議每個手勢錄 50~100 筆才夠訓練,門檻偏高。這支腳本參考 Prototypical Networks(Snell et al., NeurIPS 2017)的 few-shot 分類概念,以及 2026 年的手勢辨識 few-shot 文獻(如 EMG-Adapt 用少量樣本做個體化校準),把門檻降到**每個手勢只要 2~5 筆**:用少量真人樣本算出的「原型」,跟合成資料的典型中心點做加權平均(樣本越多,真人資料權重越高),再用 leave-one-out 方式驗證,大幅降低你實際驗證 sim-to-real gap 所需的時間成本。
 
 ## 與理論的關聯
 
@@ -63,7 +64,8 @@ src/
   features.py                    landmark -> 10維幾何特徵
   generate_gesture_templates.py  合成訓練資料
   train_classifier.py            訓練SVM分類器
-  collect_real_data.py           【需要你自己執行】錄製真實手勢資料
+  collect_real_data.py           【需要你自己執行】錄製真實手勢資料(建議50~100筆/手勢)
+  few_shot_calibrate.py          用少量真人樣本(2~5筆/手勢)校準,門檻更低
   osc_bridge.py                  即時webcam辨識 + OSC傳送
 data/
   synthetic_gestures.npz         合成訓練資料
