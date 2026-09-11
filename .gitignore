@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .venv/
 data/real_gestures.npz
+data/gesture_classifier_real.joblib

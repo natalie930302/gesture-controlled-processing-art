@@ -1,0 +1,7 @@
+{
+  "n_real_samples": 491,
+  "n_test_samples": 123,
+  "synthetic_trained_on_real_test_acc": 0.7560975609756098,
+  "real_trained_on_real_test_acc": 0.991869918699187,
+  "gap": 0.2357723577235772
+}

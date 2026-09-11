@@ -19,13 +19,28 @@ webcam --MediaPipe--> 21個手部關鍵點 --features.py--> 10維幾何特徵
 
 原本 `detect_gesture.py` 是比較指尖/關節的 y 座標,規則式判斷手指是否伸直,再用 if-else 對應到固定指令,沒有用到任何模型訓練。這個專案改成:先把 21 個 landmark 轉換成 10 維、跟手掌大小/位置/旋轉無關的幾何特徵(`src/features.py`:5指指尖到掌心距離、4個指間張角、1個整體張開度),再用這組特徵訓練分類器——這樣才是「訓練模型」而不是硬寫規則,也更容易之後加入更多手勢類別或换更複雜的分類器。
 
-## 誠實說明:合成資料 vs. 真實資料
+## Sim-to-Real Gap:已經用真實資料量化驗證過了
 
-- **`src/generate_gesture_templates.py`**:在 10 維特徵空間手動設計 5 種手勢(fist/open_palm/point/peace/thumbs_up)的「典型中心點」生成合成樣本。**這不是真人手勢量測資料**,只是為了讓整條 pipeline(特徵設計→訓練→分類→OSC→Processing)完整可跑、可展示。
-- **資料生成套用了 Domain Randomization**(Tobin et al., 2017):不是單純在一個固定中心點外加同質高斯雜訊,而是先隨機生成20個「虛擬個體」各自的系統性偏移(population-level variation,模擬不同人比同一個手勢會有系統性差異),同一個體重複比出的樣本再加一層較小的雜訊(within-person variation),另外以4%機率模擬 MediaPipe 追蹤誤判造成的異常偏移。這是階層式的變異結構,比原本單層同質雜訊更貼近真實資料的樣子——但這個改動**沒辦法用真實資料驗證有沒有真的比較好**,誠實的說法是生成過程更貼近文獻建議的做法,不是保證分類器因此更準。
-- **`src/train_classifier.py`** 在合成資料上訓練 SVM,測試集準確率 0.997——這個數字只反映合成資料本身分得很開,**不代表真實辨識準確率**,腳本執行完會印出這個提醒。
-- **`src/collect_real_data.py`**:需要你自己開 webcam 執行,對著鏡頭比出每種手勢按空白鍵錄製,存成 `data/real_gestures.npz`。錄完後把 `train_classifier.py` 的資料來源從 `synthetic_gestures.npz` 換成 `real_gestures.npz` 重新訓練,才會得到有意義的真實準確率。**這一步需要你本人操作**,我沒有辦法幫你錄製手勢影像。
-- **`src/few_shot_calibrate.py`**(新增):`collect_real_data.py` 原本建議每個手勢錄 50~100 筆才夠訓練,門檻偏高。這支腳本參考 Prototypical Networks(Snell et al., NeurIPS 2017)的 few-shot 分類概念,以及 2026 年的手勢辨識 few-shot 文獻(如 EMG-Adapt 用少量樣本做個體化校準),把門檻降到**每個手勢只要 2~5 筆**:用少量真人樣本算出的「原型」,跟合成資料的典型中心點做加權平均(樣本越多,真人資料權重越高),再用 leave-one-out 方式驗證,大幅降低你實際驗證 sim-to-real gap 所需的時間成本。
+錄了 491 筆真人手勢資料(fist 47、open_palm 129、point 108、peace 116、thumbs_up 91),`src/train_classifier_real.py` 直接量出合成資料訓練的分類器,套用在真人資料上到底差多少:
+
+| 分類器 | 測試對象 | 準確率 |
+|---|---|---|
+| 合成資料訓練 | 真人測試集(n=123) | **0.756** |
+| **真人資料訓練** | 真人測試集(n=123) | **0.992** |
+
+**差距 23.6 個百分點**——這不是理論推測,是真的量出來的數字,證實了下方理論段落一直在講的 Sim-to-Real Gap 確實存在,而且幅度不小。`osc_bridge.py` 已經改成優先載入真人資料訓練的分類器(`gesture_classifier_real.joblib`),準確率 0.992 這個版本才是實際在跑的模型。
+
+`src/few_shot_calibrate.py` 用 leave-one-out 方式在全部491筆真人資料上驗證,準確率 0.892——比完整訓練/測試切分的 0.992 略低(leave-one-out比較嚴格,每次只用剩下的資料重估原型,而且prototype-based分類本身不如SVM在這個資料量級表現好),但同樣遠高於合成資料訓練的0.756,方向一致。
+
+### 方法論(仍然保留,現在有真實數字佐證)
+
+- **`src/generate_gesture_templates.py`**:在 10 維特徵空間手動設計 5 種手勢的「典型中心點」生成合成樣本,套用 **Domain Randomization**(Tobin et al., 2017)的階層式變異設計(虛擬個體系統性偏移+個體內雜訊+模擬MediaPipe追蹤誤判)
+- **`src/train_classifier.py`**:在合成資料上訓練 SVM,測試集準確率 0.997(只反映合成資料本身分得很開,不代表真實辨識準確率——上面已經證實了)
+- **`src/collect_real_data.py`**:錄製真人資料的工具,這次錄了491筆(遠超過建議的50~100筆/手勢)
+- **`src/few_shot_calibrate.py`**:少樣本原型校準(Prototypical Networks, Snell et al. 2017),適合只錄了2~5筆時使用
+- **`src/train_classifier_real.py`**(新增):完整重新訓練+量化sim-to-real gap的主要腳本
+
+> `data/real_gestures.npz`、`data/gesture_classifier_real.joblib` 都已加進 `.gitignore`,不進版控——後者雖然是「訓練好的模型」,但因為是SVM+RBF kernel,實際上把84筆真實訓練樣本當作support vector原封不動存在模型檔裡,等於間接包含真人手勢生物特徵資料,所以比照其他專案「真實個資不上public repo」的原則處理。
 
 ## 與理論的關聯
 

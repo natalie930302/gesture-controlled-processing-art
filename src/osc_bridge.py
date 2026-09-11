@@ -24,7 +24,12 @@ OSC_IP = "127.0.0.1"
 OSC_PORT = 8000
 
 def main():
-    clf = joblib.load("../data/gesture_classifier.joblib")
+    # 優先用真人資料訓練的分類器(準確率0.992,見train_classifier_real.py的結果),
+    # 沒有的話才退回合成資料訓練的版本(準確率只有0.756,見README的sim-to-real gap量化)
+    real_model_path = "../data/gesture_classifier_real.joblib"
+    model_path = real_model_path if os.path.exists(real_model_path) else "../data/gesture_classifier.joblib"
+    print(f"載入分類器: {model_path}")
+    clf = joblib.load(model_path)
     client = udp_client.SimpleUDPClient(OSC_IP, OSC_PORT)
 
     mp_hands = mp.solutions.hands
