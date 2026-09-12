@@ -1,6 +1,11 @@
 # gesture-controlled-processing-art
 
-用 MediaPipe 手部偵測 + 自己訓練的手勢分類器,即時透過 OSC 驅動 Processing 的生成藝術(改編自課堂作業 `Noise_Terrain.pde` 的 3D noise 地形)。動機是把課程作業累積的「手勢辨識」(`課程與多媒體/手勢辨識/detect_gesture.py`,原本是純規則式數手指數量控制 Arduino小車)跟「Processing 創意編碼」兩塊獨立作業,結合成一個用真正訓練出來的模型驅動的互動藝術作品。
+用 MediaPipe 手部偵測 + 自己訓練的手勢分類器,即時透過 OSC 驅動 Processing 的生成藝術。動機是把課程作業累積的「手勢辨識」(`課程與多媒體/手勢辨識/detect_gesture.py`,原本是純規則式數手指數量控制 Arduino小車)跟「Processing 創意編碼」兩塊獨立作業,結合成一個用真正訓練出來的模型驅動的互動藝術作品。
+
+視覺端有兩個 Processing sketch:
+
+- **`gesture_koi`(主要展示版本)**:改編自課堂期末小組作業(水波方程 + boid式錦鯉群 + 荷葉碰撞)。手掌位置取代滑鼠成為魚群的吸引目標,手勢語意進一步調整魚群分離距離、對手掌的反應強度、水面漣漪頻率與配色——多個自主個體(魚)對同一組手勢語意各自產生不同反應,系統複雜度比單純調整全域參數的地形版本高。
+- `gesture_terrain`(早期版本):改編自課堂作業 `Noise_Terrain.pde` 的 3D noise 地形,手勢只調整流動速度/縮放/配色/攝影機角度等全域參數,保留在專案裡作為第一版原型。
 
 ## 架構
 
@@ -92,7 +97,28 @@ Sim-to-Real Gap 問的是「合成資料 vs. 真實資料」,但還有另一個�
 4. 自己實際錄製491筆真人手勢資料,量化 Sim-to-Real Gap(23.6個百分點)
 5. 找到獨立的 Kaggle 外部資料集,驗證 Cross-Subject Generalization(跨個體只掉5.3個百分點)
 
+## 學習筆記
+
+- **0.997這個數字讓我學到:表現太好也要懷疑,不是只有表現不好才要檢查**。這個Portfolio裡其他專案的除錯經驗大多是「結果不如預期,回頭找原因」,這個專案是少數「結果好到不合理,回頭找原因」的案例——兩種懷疑同樣重要,但後者更容易被忽略,因為漂亮的數字不會主動提醒你它可能是假的。
+- **少樣本校準方法(Prototypical Networks)不是拿來取代完整驗證的捷徑,是拿來讓完整驗證「做得到」的工具**。我一開始以為降低樣本門檻是為了偷懶,後來才發現它的真正價值是讓「錄491筆真人資料」這種原本聽起來太花時間的驗證,變成時間允許範圍內真的做得到的事。
+- **SVM把訓練樣本存成support vector這件事,是我事後才知道的模型內部細節**。如果不是因為要決定要不要把模型檔案上傳public repo而去檢查內部結構,我可能永遠不會發現這個隱私風險——這讓我理解「模型上線前要檢查的東西」不只是準確率,還包括模型檔案本身裝了什麼。
+- 這是Portfolio裡少數需要離開電腦、實際做人工資料收集的專案,親手錄491筆手勢資料的過程,比單純跑程式碼更讓我體會到「資料從哪裡來」這件事本身就是研究的一部分,不是理所當然的前置作業。
+
 ## 手勢 → 視覺效果對應
+
+### gesture_koi(主要展示版本)
+
+| 手勢 | 效果 |
+|---|---|
+| 手掌位置(即時追蹤) | 取代滑鼠,成為魚群游動的吸引目標;手掌經過處持續產生水波、推開附近荷葉 |
+| open_palm | 水面漣漪頻率提高(擾動變多),配色偏冷色 |
+| fist | 魚群游動變慢、對手掌反應變弱,配色偏暖色,漣漪變少(平靜) |
+| point | 強力吸引魚群聚集到手掌位置(像餵食) |
+| peace | 魚群分離距離放大(散開游),荷葉被推得更遠(像一陣風吹過) |
+| thumbs_up(confidence>0.6) | 切換「月夜模式」:背景偏暗藍,魚群顏色變亮 |
+| confidence(連續值0~1) | 信心值越低,魚群對手掌的反應越弱/越遲鈍,誠實反映辨識的不確定性 |
+
+### gesture_terrain(早期版本)
 
 | 手勢 | 效果 |
 |---|---|
@@ -111,7 +137,8 @@ cd src
 python generate_gesture_templates.py
 python train_classifier.py
 
-# 2. 用 Processing IDE 開啟 processing_sketch/gesture_terrain/gesture_terrain.pde
+# 2. 用 Processing IDE 開啟 processing_sketch/gesture_koi/gesture_koi.pde
+#    (或 processing_sketch/gesture_terrain/gesture_terrain.pde 看早期版本)
 #    先安裝 oscP5 library(Sketch > Import Library > Add Library... 搜尋 oscP5),按執行
 
 # 3. 開啟webcam,即時辨識手勢並送出OSC
@@ -129,7 +156,7 @@ src/
   few_shot_calibrate.py          用少量真人樣本(2~5筆/手勢)校準,門檻更低
   train_classifier_real.py       用真人資料訓練+量化sim-to-real gap
   eval_cross_dataset.py          用Kaggle公開資料集測試跨受試者泛化
-  osc_bridge.py                  即時webcam辨識 + OSC傳送
+  osc_bridge.py                  即時webcam辨識 + OSC傳送(含手掌位置)
 data/
   synthetic_gestures.npz         合成訓練資料
   gesture_names.json             手勢類別名稱
@@ -137,7 +164,8 @@ data/
   sim_to_real_gap_results.json   sim-to-real gap量化結果
   external/kaggle_gesture_landmarks.csv   跨資料集泛化測試用(MIT license)
 processing_sketch/
-  gesture_terrain/gesture_terrain.pde   接收OSC、驅動視覺效果
+  gesture_koi/gesture_koi.pde       接收OSC、手勢驅動錦鯉池(主要展示版本)
+  gesture_terrain/gesture_terrain.pde   接收OSC、驅動地形視覺效果(早期版本)
 ```
 
 ## 後續可以做的改進
