@@ -2,4 +2,7 @@ __pycache__/
 *.pyc
 .venv/
 data/real_gestures.npz
+data/real_gestures_backup_*.npz
 data/gesture_classifier_real.joblib
+processing_sketch/gesture_koi_app/
+*.autosave

@@ -4,7 +4,7 @@
 
 視覺端有兩個 Processing sketch:
 
-- **`gesture_koi`(主要展示版本)**:改編自課堂期末小組作業(水波方程 + boid式錦鯉群 + 荷葉碰撞)。手掌位置取代滑鼠成為魚群的吸引目標,手勢語意進一步調整魚群分離距離、對手掌的反應強度、水面漣漪頻率與配色——多個自主個體(魚)對同一組手勢語意各自產生不同反應,系統複雜度比單純調整全域參數的地形版本高。
+- **`gesture_koi`(主要展示版本)**:改編自課堂期末小組作業(水波方程 + boid式錦鯉群 + 荷葉碰撞)。魚的移動不是傳統文獻裡的數學化 steering behavior,而是改成 Perlin noise 驅動的自由漫遊(參考真實水族館魚群/夾娃娃機魚缸的游動質感),讓效果看起來自然、不可預測,而不是死板地朝某個目標直線收斂。五種手勢對應五種互斥、不重疊的具體效果(見下方對應表):食指讓魚群衝過來並繞著指尖打轉、握拳在拳頭位置產生水波(並推開附近荷葉)、剪刀手觸發下雨(握住時間越久雨越大)、比讚在手掌位置生出一片新荷葉(有縮放長大動畫)、手掌張開則不做任何事。魚身體形狀依照參考SVG重新繪製,加上移動殘影(afterimage)效果讓游動更有動態感。滑鼠輸入已完全停用,所有互動都只能透過手勢驅動。畫面內建即時狀態面板(手勢/openness/confidence數值)方便直接核對辨識結果跟魚群反應是否對得上。配色重新設計成接近真實錦鯉品種(紅白緋鯉Kohaku、黃金鯉Ogon、白鯉Shiro、墨鯉Sumi、丹頂系),並提高紅橘色系出現機率、降低偏黃色的比例,水色改用青碧色調,並加上暗角光影。
 - `gesture_terrain`(早期版本):改編自課堂作業 `Noise_Terrain.pde` 的 3D noise 地形,手勢只調整流動速度/縮放/配色/攝影機角度等全域參數,保留在專案裡作為第一版原型。
 
 ## 架構
@@ -26,16 +26,16 @@ webcam --MediaPipe--> 21個手部關鍵點 --features.py--> 10維幾何特徵
 
 ## Sim-to-Real Gap:已經用真實資料量化驗證過了
 
-錄了 491 筆真人手勢資料(fist 47、open_palm 129、point 108、peace 116、thumbs_up 91),`src/train_classifier_real.py` 直接量出合成資料訓練的分類器,套用在真人資料上到底差多少:
+第一輪錄了 491 筆真人手勢資料(fist 47、open_palm 129、point 108、peace 116、thumbs_up 91),`src/train_classifier_real.py` 直接量出合成資料訓練的分類器,套用在真人資料上到底差多少,量出 **23.6 個百分點**的落差(0.756 vs. 0.992)。後續為了改善手勢間的混淆問題(見下方研究歷程第二階段),又追加錄製自己的資料、並把 Kaggle 外部資料集的一部分folded 進訓練集,目前實際訓練資料來到 1616 筆(fist 284、open_palm 378、point 321、peace 326、thumbs_up 307),用同一支腳本重新量測:
 
 | 分類器 | 測試對象 | 準確率 |
 |---|---|---|
-| 合成資料訓練 | 真人測試集(n=123) | **0.756** |
-| **真人資料訓練** | 真人測試集(n=123) | **0.992** |
+| 合成資料訓練 | 真人測試集(n=404) | **0.745** |
+| **真人資料訓練** | 真人測試集(n=404) | **0.963** |
 
-**差距 23.6 個百分點**——這不是理論推測,是真的量出來的數字,證實了下方理論段落一直在講的 Sim-to-Real Gap 確實存在,而且幅度不小。`osc_bridge.py` 已經改成優先載入真人資料訓練的分類器(`gesture_classifier_real.joblib`),準確率 0.992 這個版本才是實際在跑的模型。
+**差距 21.8 個百分點**——資料量擴大近3倍後,落差幅度跟第一輪(23.6個百分點)幾乎一致,不是量測誤差,證實了下方理論段落一直在講的 Sim-to-Real Gap 是穩定存在的現象,不會因為資料量變多就自動消失。`osc_bridge.py` 已經改成優先載入真人資料訓練的分類器(`gesture_classifier_real.joblib`),準確率 0.963 這個版本才是實際在跑的模型。
 
-`src/few_shot_calibrate.py` 用 leave-one-out 方式在全部491筆真人資料上驗證,準確率 0.892——比完整訓練/測試切分的 0.992 略低(leave-one-out比較嚴格,每次只用剩下的資料重估原型,而且prototype-based分類本身不如SVM在這個資料量級表現好),但同樣遠高於合成資料訓練的0.756,方向一致。
+`src/few_shot_calibrate.py` 用 leave-one-out 方式在第一輪491筆真人資料上驗證,準確率 0.892——比完整訓練/測試切分的 0.992 略低(leave-one-out比較嚴格,每次只用剩下的資料重估原型,而且prototype-based分類本身不如SVM在這個資料量級表現好),但同樣遠高於合成資料訓練的0.756,方向一致。(這個數字沒有跟著第二輪1616筆資料重新量測,是第一輪資料收集階段的歷史結果。)
 
 ### 方法論(仍然保留,現在有真實數字佐證)
 
@@ -61,6 +61,8 @@ Sim-to-Real Gap 問的是「合成資料 vs. 真實資料」,但還有另一個�
 差距只有 5.3 個百分點,比原本擔心的還小——代表 `features.py` 設計的幾何特徵(距離/角度都經過 palm_size 正規化,跟手掌大小、位置、部分旋轉無關)確實有一定的跨個體泛化能力,不是只認得我自己的手。`fist` 跟 `thumbs_up` 這兩類在跨資料集測試裡掉得比較多(precision/recall都在0.8~0.9之間),可能是這兩個手勢的幾何形狀本來就比較容易因人而異(拇指擺放角度、握拳鬆緊程度),值得之後多收集這兩類的資料加強。
 
 執行方式:`python eval_cross_dataset.py ../data/external/kaggle_gesture_landmarks.csv`
+
+> **後續更動,會影響這個數字的有效性**:上方 0.939 是把 Kaggle 資料集當成完全獨立、沒參與訓練的held-out測試集量出來的。但研究歷程第二階段為了緩解手勢間混淆問題,後來把這個資料集裡對應的295筆樣本直接folded進了 `data/real_gestures.npz` 訓練集(現在1616筆裡的一部分)。也就是說,**目前實際部署的 `gesture_classifier_real.joblib` 已經直接訓練過這批 Kaggle 資料,不再是嚴格的held-out測試**——上面0.939這個數字只反映「當初那次獨立測試」的結果,是一個誠實揭露、但已經過時的跨個體泛化指標,不代表現在這個模型的跨個體泛化能力還沒被驗證過。
 
 ## 與理論的關聯
 
@@ -97,6 +99,17 @@ Sim-to-Real Gap 問的是「合成資料 vs. 真實資料」,但還有另一個�
 4. 自己實際錄製491筆真人手勢資料,量化 Sim-to-Real Gap(23.6個百分點)
 5. 找到獨立的 Kaggle 外部資料集,驗證 Cross-Subject Generalization(跨個體只掉5.3個百分點)
 
+### 第二階段:從「準確率驗證」到「互動設計本身也要重做」
+
+第一階段驗證完 Sim-to-Real Gap 跟 Cross-Subject Generalization 之後,回頭實際用這個系統玩,發現準確率高不代表「互動起來自然」——這是分類器指標量不出來的問題,只有實際操作才會發現:
+
+- **魚的移動模型整個重做**:一開始用文獻裡常見的 steering behavior(seek/arrival 之類數學化的目標導向轉向),移動起來規律、可預期,反而不像真正的魚。改成 Perlin noise 驅動的自由漫遊,參考真實水族館影片跟夾娃娃機魚缸的游動質感,才做出「不知道下一秒魚會游到哪」的自然感——這是一個刻意拒絕「更精確的數學模型」、選擇「更像真實現象的隨機性」的設計決定。
+- **手勢→效果對應關係整個重新設計**:原本的設計讓好幾個手勢同時疊加調整同一組參數(分離距離、反應強度、漣漪頻率),操作起來效果很難區分「是哪個手勢造成的」。改成五種手勢對應五種互斥、具體、非疊加的動作(食指→追逐、拳頭→水波、剪刀手→下雨、比讚→生荷葉、手掌張開→無動作),操作意圖跟畫面反應才能一一對應。
+- **兩個「準確率驗證不出來」的真實 bug**:(1) 荷葉自動補新的時候,新荷葉的出生座標其實已經超過自己的移除邊界,當幀就被判定為要移除,畫面上看起來像「補不進來」;(2) 水波推荷葉的方向算反了,荷葉被水波吸過去而不是推開。這兩個都不是分類器準不準的問題,是純粹的幾何/邊界計算錯誤,只有實際操作、盯著荷葉的行為看才找得出來,單元測試或準確率數字都不會暴露這種問題。
+- **旋轉不變性設計的代價**:`features.py` 為了跨個體泛化刻意設計成對手掌旋轉不變,但這也讓「手掌朝下 vs. 手掌朝鏡頭」這種只靠旋轉角度區分的手勢,在特徵空間裡完全沒有差異——一度想額外訓練一個新手勢當作下雨的觸發動作,後來發現這個手勢跟手掌張開在特徵空間裡結構性地無法區分,不是資料不夠,是特徵設計本身的取捨,最後決定放棄新手勢,直接重用「剪刀手」觸發下雨。
+- **Kaggle 資料被拿來做了第二種用途**:原本 Cross-Subject Generalization 測試把 Kaggle 資料當作嚴格held-out的獨立測試集。後來為了緩解手勢間混淆問題,把其中295筆直接併入訓練集——這個決定讓原本的跨個體泛化測試數字(0.939)失去了嚴格意義上的有效性(詳見上方Cross-Subject Generalization小節的警語),是一個「準確率 vs. 驗證嚴謹度」的明確取捨,選擇了前者。
+- **單一視窗的使用體驗**:原本要同時開Python攝影機除錯視窗跟Processing畫面兩個視窗才能運作,改成預設不開攝影機視窗(加`--show-camera`才會顯示)、把Processing sketch匯出成獨立執行檔,再用一個`啟動.bat`同時啟動兩者但只留Processing畫面可見——這一步不影響任何準確率或演算法,純粹是「這是要拿去給別人看的作品」這個定位所要求的體驗打磨。
+
 ## 學習筆記
 
 - **0.997這個數字讓我學到:表現太好也要懷疑,不是只有表現不好才要檢查**。這個Portfolio裡其他專案的除錯經驗大多是「結果不如預期,回頭找原因」,這個專案是少數「結果好到不合理,回頭找原因」的案例——兩種懷疑同樣重要,但後者更容易被忽略,因為漂亮的數字不會主動提醒你它可能是假的。
@@ -108,15 +121,18 @@ Sim-to-Real Gap 問的是「合成資料 vs. 真實資料」,但還有另一個�
 
 ### gesture_koi(主要展示版本)
 
+五種手勢對應五種互斥、不重疊的效果,同一時間只會有一個生效(滑鼠輸入已完全停用):
+
 | 手勢 | 效果 |
 |---|---|
-| 手掌位置(即時追蹤) | 取代滑鼠,成為魚群游動的吸引目標;手掌經過處持續產生水波、推開附近荷葉 |
-| open_palm | 水面漣漪頻率提高(擾動變多),配色偏冷色 |
-| fist | 魚群游動變慢、對手掌反應變弱,配色偏暖色,漣漪變少(平靜) |
-| point | 強力吸引魚群聚集到手掌位置(像餵食) |
-| peace | 魚群分離距離放大(散開游),荷葉被推得更遠(像一陣風吹過) |
-| thumbs_up(confidence>0.6) | 切換「月夜模式」:背景偏暗藍,魚群顏色變亮 |
-| confidence(連續值0~1) | 信心值越低,魚群對手掌的反應越弱/越遲鈍,誠實反映辨識的不確定性 |
+| point(食指指出) | 魚群加速衝向指尖;抵達後(距離<70px)改成繞著指尖打轉,而不是死盯著同一點 |
+| fist(握拳) | 在拳頭位置持續產生水波(固定冷卻時間),水波會推開附近的荷葉 |
+| peace(剪刀手) | 觸發下雨:畫面隨機位置產生漣漪,握住時間越久,雨滴密度越高、間隔越短(有強度爬升) |
+| thumbs_up(比讚) | 在手掌位置生出一片新荷葉(從縮放0開始長大的動畫),每次比讚觸發一次,不重複觸發 |
+| open_palm(手掌張開) | 預設姿勢,不觸發任何效果 |
+| confidence(連續值0~1) | Processing畫面左上角即時顯示目前手勢/openness/confidence數值,方便核對辨識結果 |
+
+畫面另外還有兩個跟手勢無關的背景機制:場上荷葉數量低於5片時,會在畫面內隨機位置自動補新的荷葉;魚群平常用 Perlin noise 自由漫遊,不受任何手勢影響。
 
 ### gesture_terrain(早期版本)
 
@@ -131,8 +147,16 @@ Sim-to-Real Gap 問的是「合成資料 vs. 真實資料」,但還有另一個�
 
 ## 如何執行
 
+### 最簡單的方式:一鍵啟動(需先手動匯出過一次獨立執行檔)
+
+雙擊根目錄的 `啟動.bat`:背景啟動 Python 手勢辨識(不開視窗,`pythonw.exe` 靜默執行),同時開啟已匯出成獨立執行檔的 Processing 畫面(`processing_sketch/gesture_koi_app/gesture_koi.exe`)——使用者只會看到一個視窗。想看攝影機除錯畫面,把 `啟動.bat` 裡 `osc_bridge.py` 那行加上 `--show-camera` 參數即可。
+
+`gesture_koi_app/` 是用 Processing CLI 匯出的獨立可執行檔(內含完整JRE執行環境,體積約300MB+),屬於可重新產生的build artifact,沒有進版控——需要自己在 Processing IDE 用 `File > Export Application` 匯出一次(或用 `Processing.exe cli --sketch=processing_sketch/gesture_koi --output=processing_sketch/gesture_koi_app --force --variant=windows-amd64 --export`)。
+
+### 開發/除錯用的手動流程
+
 ```bash
-# 1. 產生合成資料並訓練分類器(或改用真實資料,見上方說明)
+# 1. 產生合成資料並訓練分類器(或用 collect_real_data.py 錄真人資料 + train_classifier_real.py,見上方說明)
 cd src
 python generate_gesture_templates.py
 python train_classifier.py
@@ -141,35 +165,46 @@ python train_classifier.py
 #    (或 processing_sketch/gesture_terrain/gesture_terrain.pde 看早期版本)
 #    先安裝 oscP5 library(Sketch > Import Library > Add Library... 搜尋 oscP5),按執行
 
-# 3. 開啟webcam,即時辨識手勢並送出OSC
+# 3. 開啟webcam,即時辨識手勢並送出OSC(預設不開攝影機視窗,加 --show-camera 才會開)
 python osc_bridge.py
 ```
 
 ## 檔案結構
 
 ```
+啟動.bat                          一鍵啟動(背景執行辨識 + 只顯示Processing畫面)
 src/
-  features.py                    landmark -> 10維幾何特徵
+  features.py                    landmark -> 10維幾何特徵(對手掌大小/位置/旋轉不變)
   generate_gesture_templates.py  合成訓練資料
-  train_classifier.py            訓練SVM分類器
+  train_classifier.py            訓練SVM分類器(合成資料)
   collect_real_data.py           【需要你自己執行】錄製真實手勢資料(建議50~100筆/手勢)
   few_shot_calibrate.py          用少量真人樣本(2~5筆/手勢)校準,門檻更低
   train_classifier_real.py       用真人資料訓練+量化sim-to-real gap
   eval_cross_dataset.py          用Kaggle公開資料集測試跨受試者泛化
-  osc_bridge.py                  即時webcam辨識 + OSC傳送(含手掌位置)
+  osc_bridge.py                  即時webcam辨識 + OSC傳送(手勢+手掌/指尖座標,預設不開攝影機視窗)
 data/
   synthetic_gestures.npz         合成訓練資料
-  gesture_names.json             手勢類別名稱
+  gesture_names.json             手勢類別名稱(fist/open_palm/point/peace/thumbs_up)
   gesture_classifier.joblib      合成資料訓練的分類器
-  sim_to_real_gap_results.json   sim-to-real gap量化結果
-  external/kaggle_gesture_landmarks.csv   跨資料集泛化測試用(MIT license)
+  sim_to_real_gap_results.json   sim-to-real gap量化結果(現為1616筆真人資料的結果)
+  external/kaggle_gesture_landmarks.csv   跨資料集泛化測試用(MIT license),後續部分樣本也被折入訓練集
+  real_gestures.npz                    【不進版控,見上方隱私說明】真人錄製訓練資料
+  gesture_classifier_real.joblib       【不進版控,見上方隱私說明】真人資料訓練的分類器
 processing_sketch/
-  gesture_koi/gesture_koi.pde       接收OSC、手勢驅動錦鯉池(主要展示版本)
-  gesture_terrain/gesture_terrain.pde   接收OSC、驅動地形視覺效果(早期版本)
+  gesture_koi/gesture_koi.pde                主要展示版本(接收OSC、手勢驅動錦鯉池,見上方對應表)
+  gesture_koi_v1_realistic/                  設計迭代快照:寫實魚身版本
+  gesture_koi_v2_jeweltone/                  設計迭代快照:寶石色調版本
+  gesture_koi_v3_inkwash/                    設計迭代快照:水墨風版本
+  gesture_koi_v4_silhouette_fins/            設計迭代快照:剪影鰭版本
+  gesture_koi_app/                            【不進版控,build artifact】Processing匯出的獨立執行檔
+  gesture_terrain/gesture_terrain.pde        接收OSC、驅動地形視覺效果(早期版本)
 ```
+
+`gesture_koi_v1`~`v4` 是刻意保留的設計迭代快照(魚身形狀、配色風格逐步修改的中間版本),用來呈現視覺設計本身也是反覆試驗的過程,不是一次到位。
 
 ## 後續可以做的改進
 
 - 用真實資料重新訓練(見上),並且用 `student_id`-like 的切分方式(不同錄製時段/不同光線)測試泛化能力,而不是同一次錄製內隨機切分
 - 加入時序資訊(不只用單一frame的手勢,而是一小段時間內的手勢變化軌跡),可以辨識更豐富的動態手勢
 - 目前 `train_classifier.py` 用固定的 SVM 超參數,可以加入 cross-validation 做超參數搜尋
+- `Koi` class 裡還留著一組 boid式的分離/對齊規則(`rules()`),目前沒有被呼叫——魚群改成 Perlin noise 自由漫遊之後,還沒決定要不要重新接回去讓魚群偶爾聚成一群游動
